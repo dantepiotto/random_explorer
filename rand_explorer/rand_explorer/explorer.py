@@ -42,6 +42,7 @@ class goalpoint_generator:
         # self.map_height = None
         self.costmap_ = None
         self.costmap_data = None
+        self.subscription = self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self.map_callback,10)
     def map_callback(self, map):
         # self.map_data = np.array(map.data, dtype=np.int8).reshape((map.info.height, map.info.width))
         # self.map_resolution = map.info.resolution
@@ -111,7 +112,7 @@ def main():
 
     node = rclpy.create_node('explorer_node')
     generator = goalpoint_generator()
-    map_subscription = node.crate_subscription(OccupancyGrid, '/map', generator.map_callback,10)
+    # map_subscription = node.crate_subscription(OccupancyGrid, '/map', generator.map_callback,10)
     
 
 
