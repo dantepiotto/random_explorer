@@ -48,7 +48,7 @@ class goalpoint_generator:
         # self.map_resolution = map.info.resolution
         # self.map_width = map.info.width
         # self.map_height = map.info.height
-        self.costmap_ = PyCostmap2D(map) # TODO fix costmap is not properly read probs
+        self.costmap_ = PyCostmap2D(map) # TODO fix costmap is not properly read probs  ##### Think this works right now
         self.costmap_data = np.array(map.data, dtype=np.int8).reshape((map.info.height, map.info.width))
 
     def is_in_known_obst(self,mx,my): # TODO
@@ -64,7 +64,7 @@ class goalpoint_generator:
         # Converting rectangle boundaries to map coordinates
         m_x1, m_y1 = self.costmap_.worldToMapValidated(rect_x1, rect_y1)
         m_x2, m_y2 = self.costmap_.worldToMapValidated(rect_x2, rect_y2)
-        # might need to convert map to numpy matrix to get appropriate results DONE
+        # convert map to numpy matrix to get appropriate results 
 
         # clip coordinates to map boundaries
         m_x1 = max(0, min(m_x1, self.costmap_.size_x - 1))
@@ -122,8 +122,8 @@ def main():
     initial_pose = PoseStamped()
     initial_pose.header.frame_id = 'map'
     initial_pose.header.stamp = navigator.get_clock().now().to_msg()
-    initial_pose.pose.position.x = 3.45 # TODO change initial pose
-    initial_pose.pose.position.y = 2.15
+    initial_pose.pose.position.x = 0 # TODO change initial pose
+    initial_pose.pose.position.y = 0
     initial_pose.pose.orientation.z = 1.0
     initial_pose.pose.orientation.w = 0.0
     navigator.setInitialPose(initial_pose)
@@ -168,7 +168,7 @@ def main():
             elif result == TaskResult.FAILED:
                 print('Goal failed!')
             else:
-                print('Goal has an invalid return status!')
+                print('Goal has an invalid return status!') # TODO regulate timeout for goal reach
             rclpy.spin_once(node)
     except KeyboardInterrupt:
         pass
