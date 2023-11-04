@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from nav_msgs.msg import OccupancyGrid
 from nav2_simple_commander.costmap_2d import PyCostmap2D
@@ -29,6 +29,22 @@ from std_msgs.msg import Empty
 Basic navigation demo to go to pose.
 """
 
+def Neighbours(mx,my,costmap):
+    neighbours = [[max(mx-1,0),max(my-1,0)],[max(mx-1,0),my],[mx,min(my+1,costmap.size_y-1)],[mx,max(my-1,0)],[mx,my+1],[min(mx+1,costmap.size_x-1),max(my-1,0)],[min(mx+1,costmap.size_x-1),my],[min(mx+1,costmap.size_x-1),min(my+1,costmap.size_y-1)]]
+    return neighbours
+
+def isFrontierPoint(mx,my,costmap):                     # Checks wheter a point is a frontier point by looking at the 8-neighbourhood. If a point in the neighbourhood is unexplored, returns true, else returns false
+    for point in Neighbours(mx,my,costmap):
+        cost = costmap.getCostXY(point[0],point[1])
+        if cost == 255:
+            return True
+    return False
+
+def NaiveFrontierSearch(costmap):                       # Returns a list of frontier points
+    frontier_pts = [[x[0], x[1]] for x in np.argwhere(np.vectorize(lambda x: isFrontierPoint(x[0], x[1], costmap) if costmap[x[0], x[1]] < 100 else False)(np.indices(costmap.shape)))]
+    return frontier_pts
+        
+
 
 class goalpoint_generator(Node):
 
@@ -38,6 +54,7 @@ class goalpoint_generator(Node):
         self.costmap_data = None
         self.subscription = self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self.map_callback,qos.qos_profile_sensor_data)
         self.subscription = self.create_subscription(Empty, '/gopoint', self.generation_callback,1)
+        self.subscription = self.create_subscription(PoseWithCovarianceStamped, '/pose', self.position_callback, 1)
         self.navigator = BasicNavigator()
         self.initial_pose = PoseStamped()
         self.initial_pose.header.frame_id = 'map'
@@ -46,13 +63,20 @@ class goalpoint_generator(Node):
         self.initial_pose.pose.position.y = 0.0
         self.initial_pose.pose.orientation.z = 1.0
         self.initial_pose.pose.orientation.w = 0.0
+        self.x = None
+        self.y = None
         self.navigator.setInitialPose(self.initial_pose)
         self.navigator.waitUntilNav2Active()
 
     def map_callback(self, map):
-        print("I am the callback!")
+        print("I am the map callback!")
         self.costmap_ = PyCostmap2D(map) 
         self.costmap_data = np.array(map.data, dtype=np.int8).reshape((map.info.height, map.info.width))
+
+    def position_callback(self, pose_msg):
+        print("I am the pose callback!")
+        self.x = pose_msg.pose.pose.position.x
+        self.y = pose_msg.pose.pose.position.y
 
     def generate_random_coordinates(self,xrange,yrange):
         while True:
@@ -62,7 +86,7 @@ class goalpoint_generator(Node):
             y0 = self.initial_pose.pose.position.y
             # keeping a log of the past 10 waypoints, in order to compute distance of potential waypoints with them to promote sufficient exploration
             past_positions = [[x0,y0],[x0,y0],[x0,y0],[x0,y0],[x0,y0],[x0,y0],[x0,y0],[x0,y0],[x0,y0],[x0,y0]]
-            distances = np.linalg.norm(np.array(past_positinos) - np.array([x,y]), axis=1)
+            distances = np.linalg.norm(np.array(past_positions) - np.array([x,y]), axis=1)
             print("attempting point with coords",x,y)
             if self.is_good_point(x,y):
                 w = random.uniform(0,3.14)
@@ -124,10 +148,10 @@ class goalpoint_generator(Node):
         # convert map to numpy matrix to get appropriate results 
 
         # clip coordinates to map boundaries
-        m_x1 = clip_mx(m_x1)
-        m_y1 = clip_mx(m_y1)
-        m_x2 = clip_mx(m_x2)
-        m_y2 = clip_mx(m_y2)
+        m_x1 = self.clip_mx(m_x1)
+        m_y1 = self.clip_mx(m_y1)
+        m_x2 = self.clip_mx(m_x2)
+        m_y2 = self.clip_mx(m_y2)
 
         # Extract the relevant rectangle of the map
         map_region = self.costmap_data[m_y1:m_y2 +1, m_x1:m_x2+1]
@@ -146,8 +170,8 @@ class goalpoint_generator(Node):
             return False
         mx, my = self.costmap_.worldToMap(x,y)
         # TODO in case of stupid coordinates IDEA: clip to rw coordinates limits of map 
-        mx = clip_mx(mx)
-        my = clip_my(my)
+        mx = self.clip_mx(mx)
+        my = self.clip_my(my)
         cost = self.costmap_.getCostXY(mx,my) 
         rectangle = (0.0,0.0,10.0,20.0) # TODO change rectangle coords
         if self.is_in_known_obst(mx,my):
