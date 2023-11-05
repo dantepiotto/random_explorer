@@ -94,7 +94,7 @@ class goalpoint_generator(Node):
         super().__init__('random_explorer')
         self.costmap_ = None
         self.costmap_data = None
-        self.map_subscription = self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self.map_callback,qos.qos_profile_sensor_data)
+        self.map_subscription = self.create_subscription(OccupancyGrid, '/map', self.map_callback,qos.qos_profile_sensor_data)
         self.go_subscription = self.create_subscription(Empty, '/gopoint', self.generation_callback,10)
         self.odom_subscription = self.create_subscription(Odometry, '/odom', self.position_callback, 1)
         self.publisher_ = self.create_publisher(Empty, '/gopoint', 10)
@@ -115,7 +115,7 @@ class goalpoint_generator(Node):
     def map_callback(self, map):
         print("I am the map callback!")
         self.costmap_ = PyCostmap2D(map) 
-        self.costmap_data = np.array(map.data, dtype=np.int8).reshape((map.info.height, map.info.width))
+        self.costmap_data = np.array(map.data, dtype=np.int8).reshape((map.info.width, map.info.height))
 
     def position_callback(self, pose_msg):
         # print("I am the pose callback!")
@@ -142,13 +142,14 @@ class goalpoint_generator(Node):
         exploredness_thresh = 0.7 # TODO fix with actual map data
         xrange = 10
         yrange = 20
-        rectangle = [-2,-1,2,1] # TODO fix with actual map data
+        rectangle = [-7,-5,7,5] # TODO fix with actual map data
         print("starting to generate a goalpoint")
         if self.state == 0:
             print("performing frontier detection ... \n")
-            goal_point = self.findClosestFrontier(self.NaiveFrontierSearch(rectangle),self.x,self.y)
-            print("frontier point found with coords: ", goal_point)
-            x,y = goal_point[0], goal_point[1]
+            mx,my = self.costmap_.worldToMap(self.x,self.y)
+            goal_point = self.findClosestFrontier(self.NaiveFrontierSearch(rectangle),mx,my)
+            x,y = self.costmap_.mapToWorld(goal_point[0], goal_point[1])
+            print(f"frontier point found with coords: {x} {y} ", )
             w = random.uniform(0,3.14)
         else:
             x,y,w = self.generate_random_coordinates(rectangle)
@@ -156,15 +157,15 @@ class goalpoint_generator(Node):
         goal_pose = PoseStamped()
         goal_pose.header.frame_id = 'map'
         goal_pose.header.stamp = self.navigator.get_clock().now().to_msg()
-        goal_pose.pose.position.x = x.astype(float)
-        goal_pose.pose.position.y = y.astype(float)
+        goal_pose.pose.position.x = float(x)
+        goal_pose.pose.position.y = float(y)
         goal_pose.pose.orientation.w = w
         self.navigator.goToPose(goal_pose)
         i= 0
         while not self.navigator.isTaskComplete():
             time.sleep(1)
             i+=1 
-            if i == 30: 
+            if i == 10: 
                 pass
 
         result = self.navigator.getResult()
@@ -197,17 +198,17 @@ class goalpoint_generator(Node):
         rectangle_pixel_area = (m_x2-m_x1+1)*(m_y2-m_y1 +1)
 
         # clip coordinates to map boundaries
-        m_x1 = np.clip(m_x1, 0, self.costmap_.getSizeInCellsX())
-        m_y1 = np.clip(m_y1, 0, self.costmap_.getSizeInCellsY())
-        m_x2 = np.clip(m_x2, 0, self.costmap_.getSizeInCellsX())
-        m_y2 = np.clip(m_y2, 0, self.costmap_.getSizeInCellsY())
+        m_x1 = np.clip(m_x1, 0, self.costmap_.getSizeInCellsX()-1)
+        m_y1 = np.clip(m_y1, 0, self.costmap_.getSizeInCellsY()-1)
+        m_x2 = np.clip(m_x2, 0, self.costmap_.getSizeInCellsX()-1)
+        m_y2 = np.clip(m_y2, 0, self.costmap_.getSizeInCellsY()-1)
 
 
         # Extract the relevant rectangle of the map (done on map converted to numpy matrix)
         map_region = self.costmap_data[m_y1:m_y2 +1, m_x1:m_x2+1]
         # Count points with value 255
         total_points = (m_x2-m_x1+1)*(m_y2-m_y1 +1)
-        free_space_points = np.count_nonzero(map_region == 255)
+        free_space_points = np.count_nonzero(map_region == -1)
         # calculate portion of uknown points
         exploredness_known = free_space_points/total_points
         exploredness = free_space_points/rectangle_pixel_area
@@ -220,8 +221,8 @@ class goalpoint_generator(Node):
             return False
         mx, my = self.costmap_.worldToMap(x,y)
         # clip rw coordinates to limits of map 
-        mx = np.clip(mx, 0, self.costmap_.getSizeInCellsX())
-        my = np.clip(my, 0, self.costmap_.getSizeInCellsY())
+        mx = np.clip(mx, 0, self.costmap_.getSizeInCellsX()-1)
+        my = np.clip(my, 0, self.costmap_.getSizeInCellsY()-1)
 
         cost = self.costmap_.getCostXY(mx,my) 
         rectangle = (0.0,0.0,10.0,20.0) # TODO change rectangle coords
@@ -236,19 +237,26 @@ class goalpoint_generator(Node):
     ###############################################################################################
         
     def Neighbours(self,mx,my):                          # Returns the 8-neighbourhood of the input point, given in map coordinates, as a list of [x,y] map coordinates clipped to the map boundaries
-        neighbours = [[max(mx-1,0),max(my-1,0)],[max(mx-1,0),my],[mx,min(my+1,self.costmap_.size_y-1)],[mx,max(my-1,0)],[mx,my+1],[min(mx+1,self.costmap_.size_x-1),max(my-1,0)],[min(mx+1,self.costmap_.size_x-1),my],[min(mx+1,self.costmap_.size_x-1),min(my+1,self.costmap_.size_y-1)]]
+        neighbours = [[max(mx-1,0),max(my-1,0)],[max(mx-1,0),my],[max(mx-1,0),min(my+1,self.costmap_data.shape[1])],[mx,max(my-1,0)],[mx,min(my+1,self.costmap_data.shape[1])],[min(mx+1,self.costmap_data.shape[0]),max(my-1,0)],[min(mx+1,self.costmap_data.shape[0]),my],[min(mx+1,self.costmap_data.shape[0]),min(my+1,self.costmap_data.shape[1])]]
         return neighbours
 
     def isFrontierPoint(self,mx,my,rectangle):                     # Checks wheter a point is a frontier point by looking at the 8-neighbourhood. If a point in the neighbourhood is unexplored, returns true, else returns false
-        if not self.costmap_.getCostXY(mx,my) < 100:
+        if self.costmap_data[mx][my] != 0:
             return False
+        # print("free space found")
+        # print("neighbourhood: ", self.Neighbours(mx,my))
         for point in self.Neighbours(mx,my):
+            # print(f"checking neighbour {point[0]} {point[1]}")
             if not self.isInRectangle(point[0],point[1],rectangle):
+                # print("out of bounds")
                 return False
-
-            cost = self.costmap_.getCostXY(point[0],point[1])
-            if cost == 255:
+            cost = self.costmap_data[point[0]][point[1]]
+            if cost == -1:
+                (f"found frontier point at coords {point[0]}{point[1]}")
                 return True
+            # else:
+                #print(f"neighbour {point} not ")
+        #print("free point in free neighbourhood")
         return False
 
     def isInRectangle(self,mx,my,rectangle):
@@ -259,10 +267,10 @@ class goalpoint_generator(Node):
             m_x2, m_y2 = self.costmap_.worldToMap(rect_x2, rect_y2)
 
             # clip coordinates to map boundaries
-            m_x1 = np.clip(m_x1, 0, self.costmap_.getSizeInCellsX())
-            m_y1 = np.clip(m_y1, 0, self.costmap_.getSizeInCellsY())
-            m_x2 = np.clip(m_x2, 0, self.costmap_.getSizeInCellsX())
-            m_y2 = np.clip(m_y2, 0, self.costmap_.getSizeInCellsY())
+            m_x1 = np.clip(m_x1, 0, self.costmap_.getSizeInCellsX()-1)
+            m_y1 = np.clip(m_y1, 0, self.costmap_.getSizeInCellsY()-1)
+            m_x2 = np.clip(m_x2, 0, self.costmap_.getSizeInCellsX()-1)
+            m_y2 = np.clip(m_y2, 0, self.costmap_.getSizeInCellsY()-1)
 
             if m_x1 <= mx <= m_x2 and m_y1 <= my <= m_y2:
                 return True
@@ -273,21 +281,36 @@ class goalpoint_generator(Node):
         # lambda x : isFrontierPoint(x[0], x[1],costmap,rectangle)
         costmap = self.costmap_data
         boolean_frontier_array = np.zeros_like(costmap, dtype=bool)
+        # print(f"costmap dimensions: x: {self.costmap_.getSizeInCellsX()} y: {self.costmap_.getSizeInCellsY()}")
+        # print(f"costmap_data dimensions: x: {costmap.shape[0]} y: {costmap.shape[1]}")
         for x in range(costmap.shape[0]):
+            # print(f"x axis: iteration number {x} out of {self.costmap_.getSizeInCellsX()}")
             for y in range(costmap.shape[1]):
+                # print(f"y axis: iteration number {y} out of {self.costmap_.getSizeInCellsY()}")
+                #print(f"point with coordinates {x},{y} has value {costmap[x][y]}")
                 boolean_frontier_array[x,y] = self.isFrontierPoint(x,y,rectangle)
         frontier_pts = np.transpose(np.nonzero(boolean_frontier_array))
+        print("frontier size: ", frontier_pts.shape)
         
         return frontier_pts
 
     def findClosestFrontier(self,frontier_pts, mx, my):
+        print("frontier points: ", frontier_pts)
 
         reference_point = np.array([mx,my])
+        threshold = 20
 
         distances = np.linalg.norm(frontier_pts - reference_point, axis=1)
-        closest_index = np.argmin(distances)
+        print("distance vector: ", distances)
+        print("distance vector length: ", len(distances))
+        above_thresh_idx = np.where(distances > threshold)[0]
+        if len(above_thresh_idx) == 0:
+            print("no values above the threshold")
+            return None
+        closest_idx = np.argmin(distances[above_thresh_idx])
+        original_idx = above_thresh_idx[closest_idx]
 
-        closest_point = frontier_pts[closest_index]
+        closest_point = frontier_pts[original_idx]
 
         return closest_point
         
