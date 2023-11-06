@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'explorer_node = rand_explorer.explorer:main'
+            'explorer_node = rand_explorer.explorer:main',
+            'timer = rand_explorer.timer:main'
         ],
     },
 )
