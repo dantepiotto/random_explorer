@@ -115,7 +115,7 @@ class goalpoint_generator(Node):
     def map_callback(self, map):
         print("I am the map callback!")
         self.costmap_ = PyCostmap2D(map) 
-        self.costmap_data = np.array(map.data, dtype=np.int8).reshape((map.info.width, map.info.height))
+        self.costmap_data = np.transpose(np.array(map.data, dtype=np.int8).reshape((map.info.height, map.info.width)))
 
     def position_callback(self, pose_msg):
         # print("I am the pose callback!")
@@ -142,7 +142,7 @@ class goalpoint_generator(Node):
         exploredness_thresh = 0.7 # TODO fix with actual map data
         xrange = 10
         yrange = 20
-        rectangle = [-7,-5,7,5] # TODO fix with actual map data
+        rectangle = [-3,-2,3,2] # TODO fix with actual map data
         print("starting to generate a goalpoint")
         if self.state == 0:
             print("performing frontier detection ... \n")
